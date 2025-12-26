@@ -10,7 +10,7 @@ GFWMass automates the creation of hundreds of realistic-looking subdomains and c
 - **Load Distribution**: Traffic spread across hundreds of domains
 - **Resilience**: If some domains fail or are blocked, many alternatives remain
 - **Easy Management**: Single script handles everything from DNS to server configuration
-- **Efficient SSL**: Wildcard certificate with DNS-01 challenge covers all subdomains automatically
+- **Wildcard TLS**: You supply one wildcard certificate (e.g., via certbot DNS-01), covering all subdomains
 
 ## Architecture
 
@@ -23,15 +23,15 @@ Client → Cloudflare (cdn-47fh.example.com) → Caddy → Xray/VLESS → Intern
 
 1. **Domain Generation**: Creates realistic subdomains (e.g., `cdn-47fh`, `signup-hf33`, `api-92kl`)
 2. **Cloudflare DNS**: Each subdomain added as a proxied A record via Cloudflare API
-3. **Caddy**: Handles HTTPS termination using a wildcard certificate (*.example.com) obtained via DNS-01 challenge
+3. **Caddy**: Handles HTTPS termination using a wildcard certificate (*.example.com) that you obtain separately (e.g., certbot DNS-01)
 4. **Xray/VLESS**: Single VLESS endpoint serving all domains
 5. **Subscription**: Base64-encoded link containing all proxy endpoints
 
 ### Key Features
 
-- **Wildcard Certificate**: Uses a single wildcard certificate (*.example.com) instead of individual certificates for each subdomain
-- **DNS-01 Challenge**: Certificate obtained via Cloudflare DNS API, no need for port 80 to be accessible
-- **Automatic Renewal**: Caddy automatically renews the wildcard certificate using Cloudflare API
+- **Wildcard Certificate**: Uses a single wildcard certificate (*.example.com) you provide (certbot DNS-01 recommended)
+- **DNS-01 Challenge**: Use certbot manual DNS-01 (or another DNS-01 method); port 80 is not required
+- **Renewal**: Renew your cert externally (e.g., re-run certbot manual DNS-01) and reload Caddy
 - **Scalable**: Easily support hundreds or thousands of subdomains with a single certificate
 
 ## Prerequisites
@@ -40,10 +40,10 @@ Client → Cloudflare (cdn-47fh.example.com) → Caddy → Xray/VLESS → Intern
 - Domain name with Cloudflare DNS
 - Cloudflare API token with DNS edit permissions
 - Python 3.6+
-- Go programming language (for building Caddy with Cloudflare DNS plugin)
+- certbot (for issuing a wildcard cert via DNS-01)
 - Root/sudo access for installation
 
-**Note:** The system now uses wildcard certificates with DNS-01 challenge, which requires Caddy to be built with the Cloudflare DNS plugin. The installation script handles this automatically.
+**Note:** You must obtain and provide the wildcard certificate yourself (e.g., certbot manual DNS-01). Caddy is installed from the official repo without DNS provider modules.
 
 ## Installation
 
@@ -131,7 +131,7 @@ sudo python3 gfwmass.py --deploy --count 200
 This will:
 1. Generate 200 subdomains
 2. Add all DNS records to Cloudflare
-3. Install Caddy and Xray
+3. Install Caddy, certbot, and Xray
 4. Deploy configurations
 5. Restart services
 
@@ -156,19 +156,16 @@ sudo python3 gfwmass.py --install-only
 ## Generated Files
 
 ### Caddyfile
-Caddy configuration handling all domains with automatic HTTPS using a wildcard certificate:
+Caddy configuration handling all domains with a provided wildcard certificate:
 ```
 *.example.com {
-    reverse_proxy localhost:10000
-    tls {
-        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
-        protocols tls1.2 tls1.3
-    }
-    encode gzip
+  reverse_proxy localhost:10000
+  tls /etc/ssl/gfwmass/fullchain.pem /etc/ssl/gfwmass/privkey.pem
+  encode gzip
 }
 ```
 
-**Note:** This uses a wildcard certificate (*.example.com) with DNS-01 challenge via Cloudflare API, which is more efficient than obtaining individual certificates for each subdomain. The Cloudflare API token is stored securely in `/etc/caddy/cloudflare.env` with restricted permissions (600) and loaded via the systemd service's EnvironmentFile directive. The DNS-01 challenge allows Caddy to automatically obtain and renew the wildcard certificate without requiring HTTP port 80 to be accessible.
+**Note:** You must issue the wildcard certificate yourself (e.g., `certbot certonly --manual --preferred-challenges dns -d example.com -d '*.example.com'`) and place the files at the paths above before starting Caddy.
 
 ### xray_config.json
 Xray VLESS configuration:
