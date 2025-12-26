@@ -115,7 +115,8 @@ class GFWMass:
             'Content-Type': 'application/json'
         }
         
-        base_url = f"https://api.cloudflare.com/v4/zones/{zone_id}/dns_records"
+        # Cloudflare v4 API lives under /client/v4 (missing segment yields 7000 No route)
+        base_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
         
         success_count = 0
         failed_count = 0
