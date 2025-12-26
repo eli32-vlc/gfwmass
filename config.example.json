@@ -1,0 +1,11 @@
+{
+  "domain": "example.com",
+  "origin_ip": "1.2.3.4",
+  "email": "admin@example.com",
+  "xray_port": 10000,
+  "user_id": "your-uuid-here",
+  "cloudflare": {
+    "api_token": "your-cloudflare-api-token",
+    "zone_id": "your-zone-id"
+  }
+}
