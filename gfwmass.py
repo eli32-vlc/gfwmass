@@ -68,6 +68,7 @@ class GFWMass:
             if pattern == 'prefix-hash':
                 prefix = random.choice(service_prefixes)
                 hash_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+                subdomain = f"{prefix}-{hash_suffix}.{base_domain}"
             
             elif pattern == 'prefix-number':
                 prefix = random.choice(service_prefixes)
@@ -151,18 +152,21 @@ class GFWMass:
     def generate_caddy_config(self) -> str:
         email = self.config.get('email', 'admin@example.com')
         xray_port = self.config.get('xray_port', 10000)
+        base_domain = self.config['domain']
         
+        # Global options with email
         config = f"""{{
     email {email}
 }}
 
 """
         
-        for domain in self.domains:
-            config += f"""
-{domain} {{
+        # Add wildcard domain configuration with DNS-01 challenge
+        # Using environment variable for Cloudflare API token for better security
+        config += f"""*.{base_domain} {{
     reverse_proxy localhost:{xray_port}
     tls {{
+        dns cloudflare {{env.CLOUDFLARE_API_TOKEN}}
         protocols tls1.2 tls1.3
     }}
     encode gzip
@@ -254,24 +258,136 @@ class GFWMass:
         
         print("⚠️  Security Notice:")
         print("This will download and execute installation scripts from:")
-        print("  - https://dl.cloudsmith.io (Caddy)")
+        print("  - https://caddyserver.com (Caddy with Cloudflare DNS plugin)")
         print("  - https://github.com/XTLS/Xray-install (Xray)")
         print("")
         
-        print("Installing Caddy...")
-        caddy_commands = [
-            "apt install -y debian-keyring debian-archive-keyring apt-transport-https curl",
-            "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg",
-            "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list",
-            "apt update",
-            "apt install -y caddy"
-        ]
+        print("Installing Caddy with Cloudflare DNS plugin...")
+        print("Note: Using xcaddy to build Caddy with cloudflare module for DNS-01 challenge")
         
-        for cmd in caddy_commands:
+        # Install Go if not present (required for xcaddy)
+        go_check = subprocess.run("which go", shell=True, capture_output=True)
+        if go_check.returncode != 0:
+            print("Installing Go...")
+            go_commands = [
+                "apt update",
+                "apt install -y golang-go"
+            ]
+            for cmd in go_commands:
+                try:
+                    subprocess.run(cmd, shell=True, check=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"Warning: Command failed: {cmd} - {e}")
+        
+        # Install xcaddy
+        print("Installing xcaddy...")
+        xcaddy_install_cmd = "go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest"
+        try:
+            subprocess.run(xcaddy_install_cmd, shell=True, check=True)
+        except subprocess.CalledProcessError:
+            print("Warning: xcaddy installation may have failed.")
+        
+        # Build Caddy with Cloudflare DNS plugin
+        print("Building Caddy with Cloudflare DNS module...")
+        
+        # Validate Cloudflare API token
+        cf_api_token = self.config.get('cloudflare', {}).get('api_token', '')
+        if not cf_api_token:
+            print("Error: Cloudflare API token is required for DNS-01 challenge")
+            print("Please ensure 'cloudflare.api_token' is set in your config.json")
+            raise ValueError("Missing Cloudflare API token")
+        
+        # Create environment file for Caddy with restricted permissions
+        caddy_env_content = f"CLOUDFLARE_API_TOKEN={cf_api_token}\n"
+        
+        # Create systemd service for Caddy
+        caddy_service = """[Unit]
+Description=Caddy
+Documentation=https://caddyserver.com/docs/
+After=network.target network-online.target
+Requires=network-online.target
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+EnvironmentFile=/etc/caddy/cloudflare.env
+ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile
+ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+LimitNPROC=512
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
+"""
+        
+        try:
+            # Get GOPATH
+            gopath_result = subprocess.run(
+                "go env GOPATH", 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                check=True
+            )
+            gopath = gopath_result.stdout.strip()
+            xcaddy_path = f"{gopath}/bin/xcaddy"
+            
+            # Build Caddy with Cloudflare module
+            print(f"Building with xcaddy at {xcaddy_path}...")
+            build_cmd = f"{xcaddy_path} build --with github.com/caddy-dns/cloudflare"
             try:
-                subprocess.run(cmd, shell=True, check=True)
+                subprocess.run(build_cmd, shell=True, check=True)
             except subprocess.CalledProcessError as e:
-                print(f"Warning: Command failed: {cmd}")
+                print(f"Error: Failed to build Caddy with Cloudflare DNS plugin")
+                print(f"Command: {build_cmd}")
+                print(f"Error: {e}")
+                print("Possible solutions:")
+                print("  - Ensure Go and xcaddy are properly installed")
+                print("  - Check internet connectivity for downloading dependencies")
+                print("  - Verify sufficient disk space")
+                raise
+            
+            # Move and set permissions
+            subprocess.run("mv caddy /usr/bin/caddy", shell=True, check=True)
+            subprocess.run("chmod +x /usr/bin/caddy", shell=True, check=True)
+            
+            # Create caddy user and group
+            subprocess.run(
+                "groupadd --system caddy 2>/dev/null || true", 
+                shell=True
+            )
+            subprocess.run(
+                "useradd --system --gid caddy --create-home "
+                "--home-dir /var/lib/caddy --shell /usr/sbin/nologin "
+                "--comment 'Caddy web server' caddy 2>/dev/null || true", 
+                shell=True
+            )
+            
+            # Create necessary directories
+            subprocess.run("mkdir -p /etc/caddy", shell=True, check=True)
+            subprocess.run("mkdir -p /var/lib/caddy", shell=True, check=True)
+            
+            # Write environment file with restricted permissions
+            with open('/etc/caddy/cloudflare.env', 'w') as f:
+                f.write(caddy_env_content)
+            subprocess.run("chmod 600 /etc/caddy/cloudflare.env", shell=True, check=True)
+            subprocess.run("chown caddy:caddy /etc/caddy/cloudflare.env", shell=True, check=True)
+            
+            # Install systemd service
+            with open('/etc/systemd/system/caddy.service', 'w') as f:
+                f.write(caddy_service)
+            
+            subprocess.run("systemctl daemon-reload", shell=True, check=True)
+            subprocess.run("systemctl enable caddy", shell=True, check=True)
+            
+            print("✓ Caddy with Cloudflare DNS plugin installed successfully")
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: Caddy installation may have failed: {e}")
         
         print("\nInstalling Xray...")
         print("Note: Downloading official installation script from GitHub...")
