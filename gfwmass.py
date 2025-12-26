@@ -194,8 +194,11 @@ class GFWMass:
                         "decryption": "none"
                     },
                     "streamSettings": {
-                        "network": "tcp",
-                        "security": "none"
+                        "network": "ws",
+                        "security": "none",
+                        "wsSettings": {
+                            "path": "/ws"
+                        }
                     }
                 }
             ],
@@ -214,7 +217,10 @@ class GFWMass:
         
         links = []
         for domain in self.domains:
-            link = f"vless://{user_id}@{domain}:443?encryption=none&security=tls&type=tcp#{domain}"
+            link = (
+                f"vless://{user_id}@{domain}:443?encryption=none&security=tls"
+                f"&type=ws&host={domain}&path=/ws#{domain}"
+            )
             links.append(link)
         
         subscription_content = '\n'.join(links)

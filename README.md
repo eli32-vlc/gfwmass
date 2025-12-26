@@ -24,14 +24,14 @@ Client → Cloudflare (cdn-47fh.example.com) → Caddy → Xray/VLESS → Intern
 1. **Domain Generation**: Creates realistic subdomains (e.g., `cdn-47fh`, `signup-hf33`, `api-92kl`)
 2. **Cloudflare DNS**: Each subdomain added as a proxied A record via Cloudflare API
 3. **Caddy**: Handles HTTPS termination using a wildcard certificate (*.example.com) that you obtain separately (e.g., certbot DNS-01)
-4. **Xray/VLESS**: Single VLESS endpoint serving all domains
+4. **Xray/VLESS over WebSocket (WS)**: Single VLESS+WS endpoint serving all domains
 5. **Subscription**: Base64-encoded link containing all proxy endpoints
 
 ### Key Features
 
 - **Wildcard Certificate**: Uses a single wildcard certificate (*.example.com) you provide (certbot DNS-01 recommended)
 - **DNS-01 Challenge**: Use certbot manual DNS-01 (or another DNS-01 method); port 80 is not required
-- **Renewal**: Renew your cert externally (e.g., re-run certbot manual DNS-01) and reload Caddy
+- **Transport**: VLESS over WebSocket (path `/ws`) fronted by Caddy
 - **Scalable**: Easily support hundreds or thousands of subdomains with a single certificate
 
 ## Prerequisites
@@ -156,7 +156,7 @@ sudo python3 gfwmass.py --install-only
 ## Generated Files
 
 ### Caddyfile
-Caddy configuration handling all domains with a provided wildcard certificate:
+Caddy configuration handling all domains with a provided wildcard certificate (WebSocket passthrough works automatically with `reverse_proxy`):
 ```
 *.example.com {
   reverse_proxy localhost:10000
@@ -165,7 +165,7 @@ Caddy configuration handling all domains with a provided wildcard certificate:
 }
 ```
 
-**Note:** You must issue the wildcard certificate yourself (e.g., `certbot certonly --manual --preferred-challenges dns -d example.com -d '*.example.com'`) and place the files at the paths above before starting Caddy.
+**Note:** You must issue the wildcard certificate yourself (e.g., `certbot certonly --manual --preferred-challenges dns -d example.com -d '*.example.com'`) and place the files at the paths above before starting Caddy. WebSockets use path `/ws`.
 
 ### xray_config.json
 Xray VLESS configuration:
