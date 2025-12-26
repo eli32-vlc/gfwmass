@@ -68,6 +68,7 @@ class GFWMass:
             if pattern == 'prefix-hash':
                 prefix = random.choice(service_prefixes)
                 hash_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=4))
+                subdomain = f"{prefix}-{hash_suffix}.{base_domain}"
             
             elif pattern == 'prefix-number':
                 prefix = random.choice(service_prefixes)
