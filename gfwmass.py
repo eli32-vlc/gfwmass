@@ -123,11 +123,9 @@ class GFWMass:
         print(f"Adding {len(self.domains)} DNS records to Cloudflare...")
         
         for i, domain in enumerate(self.domains):
-            subdomain = domain.split('.')[0]
-            
             data = {
                 'type': 'A',
-                'name': subdomain,
+                'name': domain,
                 'content': origin_ip,
                 'ttl': 1,  # Auto
                 'proxied': True  # Enable Cloudflare proxy
