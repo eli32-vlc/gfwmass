@@ -289,6 +289,13 @@ class GFWMass:
         if os.geteuid() != 0:
             print("Warning: Not running as root. You may need sudo privileges.")
         
+        # Security warning
+        print("⚠️  Security Notice:")
+        print("This will download and execute installation scripts from:")
+        print("  - https://dl.cloudsmith.io (Caddy)")
+        print("  - https://github.com/XTLS/Xray-install (Xray)")
+        print("")
+        
         # Install Caddy
         print("Installing Caddy...")
         caddy_commands = [
@@ -307,6 +314,9 @@ class GFWMass:
         
         # Install Xray
         print("\nInstalling Xray...")
+        print("Note: Downloading official installation script from GitHub...")
+        # Note: Using shell=True with subprocess is required here for the bash -c construct
+        # The URL points to the official Xray installation script
         xray_install_cmd = "bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install"
         try:
             subprocess.run(xray_install_cmd, shell=True, check=True)

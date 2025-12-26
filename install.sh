@@ -38,7 +38,11 @@ if [ ! -f "config.json" ]; then
 fi
 
 # Make script executable
-chmod +x gfwmass.py
+if [ -f "gfwmass.py" ]; then
+    chmod +x gfwmass.py
+else
+    echo -e "${RED}Warning: gfwmass.py not found${NC}"
+fi
 
 echo ""
 echo "================================"

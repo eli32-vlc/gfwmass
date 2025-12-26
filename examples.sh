@@ -15,6 +15,11 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Cleanup function to remove generated files
+cleanup_files() {
+    rm -f Caddyfile xray_config.json domains.txt subscription.txt subscription_decoded.txt
+}
+
 # Check if config exists
 if [ ! -f "config.json" ]; then
     echo -e "${RED}Error: config.json not found${NC}"
@@ -136,12 +141,12 @@ case $MODE in
         echo -e "${GREEN}All tests passed!${NC}"
         
         # Cleanup test files
-        rm -f Caddyfile xray_config.json domains.txt subscription.txt subscription_decoded.txt
+        cleanup_files
         ;;
     
     clean)
         echo -e "${YELLOW}Cleaning up generated files${NC}"
-        rm -f Caddyfile xray_config.json domains.txt subscription.txt subscription_decoded.txt
+        cleanup_files
         echo -e "${GREEN}Cleanup completed${NC}"
         ;;
     
