@@ -20,9 +20,10 @@ except ImportError:
 
 class GFWMass:
     
-    def __init__(self, config_file: str = "config.json"):
+    def __init__(self, config_file: str = "config.json", manual_dns: bool = False):
         self.config = self.load_config(config_file)
         self.domains = []
+        self.manual_dns = manual_dns
         
     def load_config(self, config_file: str) -> Dict[str, Any]:
         if not os.path.exists(config_file):
@@ -152,17 +153,27 @@ class GFWMass:
         email = self.config.get('email', 'admin@example.com')
         xray_port = self.config.get('xray_port', 10000)
         base_domain = self.config['domain']
-        
+
         # Global options with email
         config = f"""{{
     email {email}
 }}
 
 """
-        
-        # Add wildcard domain configuration with DNS-01 challenge
-        # Using environment variable for Cloudflare API token for better security
-        config += f"""*.{base_domain} {{
+
+        if self.manual_dns:
+            cert_path = self.config.get('manual_cert_path', '/etc/ssl/gfwmass/fullchain.pem')
+            key_path = self.config.get('manual_key_path', '/etc/ssl/gfwmass/privkey.pem')
+            # Manual DNS-01: user supplies cert/key generated via external DNS challenge
+            config += f"""*.{base_domain} {{
+    reverse_proxy localhost:{xray_port}
+    tls {cert_path} {key_path}
+    encode gzip
+}}
+"""
+        else:
+            # Automatic DNS-01 using Cloudflare plugin (default path)
+            config += f"""*.{base_domain} {{
     reverse_proxy localhost:{xray_port}
     tls {{
         dns cloudflare {{env.CLOUDFLARE_API_TOKEN}}
@@ -171,7 +182,7 @@ class GFWMass:
     encode gzip
 }}
 """
-        
+
         return config
     
     def generate_xray_config(self) -> Dict[str, Any]:
@@ -248,22 +259,49 @@ class GFWMass:
             decoded = base64.b64decode(subscription).decode()
             f.write(decoded)
         print("✓ subscription_decoded.txt generated (human readable)")
+
+        if self.manual_dns:
+            self.write_manual_dns_instructions()
     
     def install_dependencies(self):
         print("\n=== Installing Dependencies ===\n")
-        
+
         if os.geteuid() != 0:
             print("Warning: Not running as root. You may need sudo privileges.")
-        
+
+        if self.manual_dns:
+            print("Installing stock Caddy (no DNS provider module) and Xray...")
+            install_cmds = [
+                "apt update",
+                "apt install -y debian-keyring debian-archive-keyring apt-transport-https",
+                "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg",
+                "curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list",
+                "apt update",
+                "apt install -y caddy"
+            ]
+            for cmd in install_cmds:
+                try:
+                    subprocess.run(cmd, shell=True, check=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"Warning: Command failed: {cmd} - {e}")
+            print("\nInstalling Xray...")
+            xray_install_cmd = "bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install"
+            try:
+                subprocess.run(xray_install_cmd, shell=True, check=True)
+            except subprocess.CalledProcessError:
+                print("Warning: Xray installation may have failed. Please install manually if needed.")
+            print("\n✓ Dependencies installation completed (manual DNS mode)")
+            return
+
         print("⚠️  Security Notice:")
         print("This will download and execute installation scripts from:")
         print("  - https://caddyserver.com (Caddy with Cloudflare DNS plugin)")
         print("  - https://github.com/XTLS/Xray-install (Xray)")
         print("")
-        
+
         print("Installing Caddy with Cloudflare DNS plugin...")
         print("Note: Using xcaddy to build Caddy with cloudflare module for DNS-01 challenge")
-        
+
         # Install Go if not present (required for xcaddy)
         go_check = subprocess.run("which go", shell=True, capture_output=True)
         if go_check.returncode != 0:
@@ -277,7 +315,7 @@ class GFWMass:
                     subprocess.run(cmd, shell=True, check=True)
                 except subprocess.CalledProcessError as e:
                     print(f"Warning: Command failed: {cmd} - {e}")
-        
+
         # Install xcaddy
         print("Installing xcaddy...")
         xcaddy_install_cmd = "go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest"
@@ -285,20 +323,20 @@ class GFWMass:
             subprocess.run(xcaddy_install_cmd, shell=True, check=True)
         except subprocess.CalledProcessError:
             print("Warning: xcaddy installation may have failed.")
-        
+
         # Build Caddy with Cloudflare DNS plugin
         print("Building Caddy with Cloudflare DNS module...")
-        
+
         # Validate Cloudflare API token
         cf_api_token = self.config.get('cloudflare', {}).get('api_token', '')
         if not cf_api_token:
             print("Error: Cloudflare API token is required for DNS-01 challenge")
             print("Please ensure 'cloudflare.api_token' is set in your config.json")
             raise ValueError("Missing Cloudflare API token")
-        
+
         # Create environment file for Caddy with restricted permissions
         caddy_env_content = f"CLOUDFLARE_API_TOKEN={cf_api_token}\n"
-        
+
         # Create systemd service for Caddy
         caddy_service = """[Unit]
 Description=Caddy
@@ -323,19 +361,19 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 [Install]
 WantedBy=multi-user.target
 """
-        
+
         try:
             # Get GOPATH
             gopath_result = subprocess.run(
-                "go env GOPATH", 
-                shell=True, 
-                capture_output=True, 
-                text=True, 
+                "go env GOPATH",
+                shell=True,
+                capture_output=True,
+                text=True,
                 check=True
             )
             gopath = gopath_result.stdout.strip()
             xcaddy_path = f"{gopath}/bin/xcaddy"
-            
+
             # Build Caddy with Cloudflare module
             print(f"Building with xcaddy at {xcaddy_path}...")
             build_cmd = f"{xcaddy_path} build --with github.com/caddy-dns/cloudflare"
@@ -350,44 +388,44 @@ WantedBy=multi-user.target
                 print("  - Check internet connectivity for downloading dependencies")
                 print("  - Verify sufficient disk space")
                 raise
-            
+
             # Move and set permissions
             subprocess.run("mv caddy /usr/bin/caddy", shell=True, check=True)
             subprocess.run("chmod +x /usr/bin/caddy", shell=True, check=True)
-            
+
             # Create caddy user and group
             subprocess.run(
-                "groupadd --system caddy 2>/dev/null || true", 
+                "groupadd --system caddy 2>/dev/null || true",
                 shell=True
             )
             subprocess.run(
                 "useradd --system --gid caddy --create-home "
                 "--home-dir /var/lib/caddy --shell /usr/sbin/nologin "
-                "--comment 'Caddy web server' caddy 2>/dev/null || true", 
+                "--comment 'Caddy web server' caddy 2>/dev/null || true",
                 shell=True
             )
-            
+
             # Create necessary directories
             subprocess.run("mkdir -p /etc/caddy", shell=True, check=True)
             subprocess.run("mkdir -p /var/lib/caddy", shell=True, check=True)
-            
+
             # Write environment file with restricted permissions
             with open('/etc/caddy/cloudflare.env', 'w') as f:
                 f.write(caddy_env_content)
             subprocess.run("chmod 600 /etc/caddy/cloudflare.env", shell=True, check=True)
             subprocess.run("chown caddy:caddy /etc/caddy/cloudflare.env", shell=True, check=True)
-            
+
             # Install systemd service
             with open('/etc/systemd/system/caddy.service', 'w') as f:
                 f.write(caddy_service)
-            
+
             subprocess.run("systemctl daemon-reload", shell=True, check=True)
             subprocess.run("systemctl enable caddy", shell=True, check=True)
-            
+
             print("✓ Caddy with Cloudflare DNS plugin installed successfully")
         except subprocess.CalledProcessError as e:
             print(f"Warning: Caddy installation may have failed: {e}")
-        
+
         print("\nInstalling Xray...")
         print("Note: Downloading official installation script from GitHub...")
         xray_install_cmd = "bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install"
@@ -395,7 +433,7 @@ WantedBy=multi-user.target
             subprocess.run(xray_install_cmd, shell=True, check=True)
         except subprocess.CalledProcessError:
             print("Warning: Xray installation may have failed. Please install manually if needed.")
-        
+
         print("\n✓ Dependencies installation completed")
     
     def deploy_configs(self):
@@ -432,6 +470,50 @@ WantedBy=multi-user.target
         
         print("\n✓ Services restart completed")
 
+    def write_manual_dns_instructions(self):
+        base_domain = self.config['domain']
+        email = self.config.get('email', 'admin@example.com')
+        cert_path = self.config.get('manual_cert_path', '/etc/ssl/gfwmass/fullchain.pem')
+        key_path = self.config.get('manual_key_path', '/etc/ssl/gfwmass/privkey.pem')
+
+        instructions = f"""
+Manual DNS-01 Certificate (Wildcard) Instructions
+=================================================
+
+Because manual DNS mode is enabled, Caddy expects an existing wildcard certificate.
+Provide a valid certificate and key at:
+- Fullchain: {cert_path}
+- Private key: {key_path}
+
+Suggested (interactive) issuance using certbot manual DNS:
+---------------------------------------------------------
+1) Install certbot:
+   sudo apt update && sudo apt install -y certbot
+
+2) Run manual DNS-01 issuance (will prompt for TXT records):
+   sudo certbot certonly --manual --preferred-challenges dns \
+        -d {base_domain} -d '*.{base_domain}' \
+        --agree-tos -m {email} --config-dir /etc/letsencrypt \
+        --work-dir /var/lib/letsencrypt --logs-dir /var/log/letsencrypt
+
+3) When prompted, create the provided TXT records in your DNS panel, wait for propagation, then continue.
+
+4) After success, copy resulting files to the expected paths:
+   sudo install -d $(dirname {cert_path}) $(dirname {key_path})
+   sudo cp /etc/letsencrypt/live/{base_domain}/fullchain.pem {cert_path}
+   sudo cp /etc/letsencrypt/live/{base_domain}/privkey.pem {key_path}
+   sudo chmod 600 {cert_path} {key_path}
+
+5) Restart services:
+   sudo systemctl restart caddy xray
+
+Renewals: Manual DNS renewals require repeating the challenge. Consider migrating to an automated DNS provider hook when possible.
+"""
+
+        with open('MANUAL_DNS.md', 'w') as f:
+            f.write(instructions)
+        print("✓ MANUAL_DNS.md generated (manual DNS-01 guidance)")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -465,16 +547,18 @@ Commands:
                        help='Deploy to Cloudflare and install services')
     parser.add_argument('--install-only', action='store_true',
                        help='Install dependencies only')
+    parser.add_argument('--manual-dns', action='store_true',
+                       help='Use manual DNS-01 (no Cloudflare Caddy module); supply your own wildcard cert')
     
     args = parser.parse_args()
     
     if args.install_only:
-        gfw = GFWMass(args.config)
+        gfw = GFWMass(args.config, manual_dns=args.manual_dns)
         gfw.install_dependencies()
         return
     
     # Initialize
-    gfw = GFWMass(args.config)
+    gfw = GFWMass(args.config, manual_dns=args.manual_dns)
     
     # Generate subdomains
     print(f"\n=== Generating {args.count} Subdomains ===\n")
@@ -489,27 +573,26 @@ Commands:
     if args.deploy:
         # Add to Cloudflare
         print("\n=== Deploying to Cloudflare ===\n")
-        success = gfw.add_cloudflare_records()
+        gfw.add_cloudflare_records()
+
+        print("\n=== Installing Dependencies ===")
+        gfw.install_dependencies()
         
-        if success:
-            print("\n=== Installing Dependencies ===")
-            gfw.install_dependencies()
-            
-            print("\n=== Deploying Configurations ===")
-            gfw.deploy_configs()
-            
-            print("\n=== Restarting Services ===")
-            gfw.restart_services()
-            
-            print("\n" + "="*50)
-            print("✓ Deployment completed successfully!")
-            print("="*50)
-            print("\nNext steps:")
-            print("1. Check subscription.txt for the base64-encoded subscription link")
-            print("2. Import the subscription link into your client")
-            print("3. Configure client to rotate endpoints every few minutes")
-            print("4. Monitor logs: journalctl -u caddy -f")
-            print("            journalctl -u xray -f")
+        print("\n=== Deploying Configurations ===")
+        gfw.deploy_configs()
+        
+        print("\n=== Restarting Services ===")
+        gfw.restart_services()
+        
+        print("\n" + "="*50)
+        print("✓ Deployment flow completed (check manual DNS instructions if applicable)")
+        print("="*50)
+        print("\nNext steps:")
+        print("1. Check subscription.txt for the base64-encoded subscription link")
+        print("2. Import the subscription link into your client")
+        print("3. Configure client to rotate endpoints every few minutes")
+        print("4. Monitor logs: journalctl -u caddy -f")
+        print("            journalctl -u xray -f")
     else:
         print("\n" + "="*50)
         print("✓ Configuration generation completed!")
