@@ -168,7 +168,7 @@ Caddy configuration handling all domains with automatic HTTPS using a wildcard c
 }
 ```
 
-**Note:** This uses a wildcard certificate (*.example.com) with DNS-01 challenge via Cloudflare API, which is more efficient than obtaining individual certificates for each subdomain. The Cloudflare API token is provided via the CLOUDFLARE_API_TOKEN environment variable in the systemd service for security. The DNS-01 challenge allows Caddy to automatically obtain and renew the wildcard certificate without requiring HTTP port 80 to be accessible.
+**Note:** This uses a wildcard certificate (*.example.com) with DNS-01 challenge via Cloudflare API, which is more efficient than obtaining individual certificates for each subdomain. The Cloudflare API token is stored securely in `/etc/caddy/cloudflare.env` with restricted permissions (600) and loaded via the systemd service's EnvironmentFile directive. The DNS-01 challenge allows Caddy to automatically obtain and renew the wildcard certificate without requiring HTTP port 80 to be accessible.
 
 ### xray_config.json
 Xray VLESS configuration:
