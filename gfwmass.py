@@ -147,6 +147,61 @@ class GFWMass:
         
         print(f"\nCompleted: {success_count} successful, {failed_count} failed")
         return failed_count == 0
+
+    def remove_cloudflare_records(self, domains: List[str]) -> bool:
+        cf_token = self.config['cloudflare']['api_token']
+        zone_id = self.config['cloudflare']['zone_id']
+
+        headers = {
+            'Authorization': f'Bearer {cf_token}',
+            'Content-Type': 'application/json'
+        }
+
+        base_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
+
+        success_count = 0
+        failed_count = 0
+
+        print(f"Removing up to {len(domains)} DNS A records from Cloudflare...")
+
+        for i, domain in enumerate(domains):
+            # Find the record id for this name/type
+            try:
+                list_resp = requests.get(
+                    base_url,
+                    headers=headers,
+                    params={"type": "A", "name": domain, "per_page": 1}
+                )
+                if list_resp.status_code != 200:
+                    failed_count += 1
+                    print(f"Failed to lookup {domain}: {list_resp.text}")
+                    continue
+
+                result = list_resp.json().get("result", [])
+                if not result:
+                    print(f"No A record found for {domain}, skipping")
+                    continue
+
+                record_id = result[0].get("id")
+                if not record_id:
+                    failed_count += 1
+                    print(f"Missing record id for {domain}, skipping")
+                    continue
+
+                del_resp = requests.delete(f"{base_url}/{record_id}", headers=headers)
+                if del_resp.status_code == 200:
+                    success_count += 1
+                    if (i + 1) % 10 == 0:
+                        print(f"Progress: {i + 1}/{len(domains)} processed")
+                else:
+                    failed_count += 1
+                    print(f"Failed to delete {domain}: {del_resp.text}")
+            except Exception as e:
+                failed_count += 1
+                print(f"Error removing {domain}: {str(e)}")
+
+        print(f"\nRemoval completed: {success_count} deleted, {failed_count} failed or skipped")
+        return failed_count == 0
     
     def generate_caddy_config(self) -> str:
         email = self.config.get('email', 'admin@example.com')
@@ -397,12 +452,25 @@ Commands:
                        help='Deploy to Cloudflare and install services')
     parser.add_argument('--install-only', action='store_true',
                        help='Install dependencies only')
+    parser.add_argument('--remove-dns', action='store_true',
+                       help='Remove Cloudflare A records for generated domains (uses domains.txt if present)')
     
     args = parser.parse_args()
     
     if args.install_only:
         gfw = GFWMass(args.config)
         gfw.install_dependencies()
+        return
+
+    if args.remove_dns:
+        gfw = GFWMass(args.config)
+        # Prefer existing domains.txt; fall back to generating a new set
+        if os.path.exists('domains.txt'):
+            with open('domains.txt', 'r') as f:
+                domains = [line.strip() for line in f if line.strip()]
+        else:
+            domains = gfw.generate_subdomains(args.count)
+        gfw.remove_cloudflare_records(domains)
         return
     
     # Initialize
