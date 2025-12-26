@@ -153,7 +153,6 @@ class GFWMass:
         email = self.config.get('email', 'admin@example.com')
         xray_port = self.config.get('xray_port', 10000)
         base_domain = self.config['domain']
-        cf_api_token = self.config['cloudflare']['api_token']
         
         # Global options with email
         config = f"""{{
@@ -163,10 +162,11 @@ class GFWMass:
 """
         
         # Add wildcard domain configuration with DNS-01 challenge
+        # Using environment variable for Cloudflare API token for better security
         config += f"""*.{base_domain} {{
     reverse_proxy localhost:{xray_port}
     tls {{
-        dns cloudflare {cf_api_token}
+        dns cloudflare {{env.CLOUDFLARE_API_TOKEN}}
         protocols tls1.2 tls1.3
     }}
     encode gzip
@@ -277,7 +277,7 @@ class GFWMass:
                 try:
                     subprocess.run(cmd, shell=True, check=True)
                 except subprocess.CalledProcessError as e:
-                    print(f"Warning: Command failed: {cmd}")
+                    print(f"Warning: Command failed: {cmd} - {e}")
         
         # Install xcaddy
         print("Installing xcaddy...")
@@ -289,17 +289,10 @@ class GFWMass:
         
         # Build Caddy with Cloudflare DNS plugin
         print("Building Caddy with Cloudflare DNS module...")
-        caddy_build_commands = [
-            "export PATH=$PATH:$(go env GOPATH)/bin",
-            "$(go env GOPATH)/bin/xcaddy build --with github.com/caddy-dns/cloudflare",
-            "mv caddy /usr/bin/caddy",
-            "chmod +x /usr/bin/caddy",
-            "groupadd --system caddy 2>/dev/null || true",
-            "useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin --comment 'Caddy web server' caddy 2>/dev/null || true"
-        ]
         
-        # Create systemd service for Caddy
-        caddy_service = """[Unit]
+        # Create systemd service for Caddy with environment variable
+        cf_api_token = self.config['cloudflare']['api_token']
+        caddy_service = f"""[Unit]
 Description=Caddy
 Documentation=https://caddyserver.com/docs/
 After=network.target network-online.target
@@ -309,6 +302,7 @@ Requires=network-online.target
 Type=notify
 User=caddy
 Group=caddy
+Environment="CLOUDFLARE_API_TOKEN={cf_api_token}"
 ExecStart=/usr/bin/caddy run --environ --config /etc/caddy/Caddyfile
 ExecReload=/usr/bin/caddy reload --config /etc/caddy/Caddyfile
 TimeoutStopSec=5s
@@ -323,9 +317,24 @@ WantedBy=multi-user.target
 """
         
         try:
-            # Build Caddy
-            for cmd in caddy_build_commands:
-                subprocess.run(cmd, shell=True, check=True)
+            # Get GOPATH
+            gopath_result = subprocess.run("go env GOPATH", shell=True, capture_output=True, text=True, check=True)
+            gopath = gopath_result.stdout.strip()
+            xcaddy_path = f"{gopath}/bin/xcaddy"
+            
+            # Build Caddy with Cloudflare module
+            print(f"Building with xcaddy at {xcaddy_path}...")
+            subprocess.run(f"{xcaddy_path} build --with github.com/caddy-dns/cloudflare", 
+                         shell=True, check=True)
+            
+            # Move and set permissions
+            subprocess.run("mv caddy /usr/bin/caddy", shell=True, check=True)
+            subprocess.run("chmod +x /usr/bin/caddy", shell=True, check=True)
+            
+            # Create caddy user and group
+            subprocess.run("groupadd --system caddy 2>/dev/null || true", shell=True)
+            subprocess.run("useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin --comment 'Caddy web server' caddy 2>/dev/null || true", 
+                         shell=True)
             
             # Create necessary directories
             subprocess.run("mkdir -p /etc/caddy", shell=True, check=True)

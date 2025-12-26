@@ -161,14 +161,14 @@ Caddy configuration handling all domains with automatic HTTPS using a wildcard c
 *.example.com {
     reverse_proxy localhost:10000
     tls {
-        dns cloudflare your-cloudflare-api-token
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
         protocols tls1.2 tls1.3
     }
     encode gzip
 }
 ```
 
-**Note:** This uses a wildcard certificate (*.example.com) with DNS-01 challenge via Cloudflare API, which is more efficient than obtaining individual certificates for each subdomain. The DNS-01 challenge allows Caddy to automatically obtain and renew the wildcard certificate without requiring HTTP port 80 to be accessible.
+**Note:** This uses a wildcard certificate (*.example.com) with DNS-01 challenge via Cloudflare API, which is more efficient than obtaining individual certificates for each subdomain. The Cloudflare API token is provided via the CLOUDFLARE_API_TOKEN environment variable in the systemd service for security. The DNS-01 challenge allows Caddy to automatically obtain and renew the wildcard certificate without requiring HTTP port 80 to be accessible.
 
 ### xray_config.json
 Xray VLESS configuration:
