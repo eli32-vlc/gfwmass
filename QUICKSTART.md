@@ -217,9 +217,10 @@ sudo python3 gfwmass.py --deploy --count 500
 # Validate Caddyfile syntax
 sudo caddy validate --config /etc/caddy/Caddyfile
 
-# Check what's using port 80/443
-sudo lsof -i :80
+# Check what's using port 443
 sudo lsof -i :443
+
+# Note: Port 80 is not required since we use DNS-01 challenge
 
 # Check detailed logs
 sudo journalctl -u caddy -n 100 --no-pager
@@ -241,10 +242,11 @@ sudo journalctl -u caddy -n 100 --no-pager
 **Problem:** Certificate validation fails
 
 **Solutions:**
-- Wait a few minutes for ACME challenge to complete
-- Ensure port 80 is accessible (needed for Let's Encrypt)
+- Wait a few minutes for DNS-01 challenge to complete
+- Verify Cloudflare API token has DNS edit permissions
 - Check email in config.json is valid
-- View Caddy logs for ACME errors
+- View Caddy logs for DNS-01 challenge errors: `sudo journalctl -u caddy -n 100`
+- **Note:** This system uses wildcard certificates with DNS-01 challenge via Cloudflare API, so port 80 is not required
 
 ## Maintenance
 

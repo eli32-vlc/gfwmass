@@ -10,6 +10,7 @@ GFWMass automates the creation of hundreds of realistic-looking subdomains and c
 - **Load Distribution**: Traffic spread across hundreds of domains
 - **Resilience**: If some domains fail or are blocked, many alternatives remain
 - **Easy Management**: Single script handles everything from DNS to server configuration
+- **Efficient SSL**: Wildcard certificate with DNS-01 challenge covers all subdomains automatically
 
 ## Architecture
 
@@ -22,9 +23,16 @@ Client → Cloudflare (cdn-47fh.example.com) → Caddy → Xray/VLESS → Intern
 
 1. **Domain Generation**: Creates realistic subdomains (e.g., `cdn-47fh`, `signup-hf33`, `api-92kl`)
 2. **Cloudflare DNS**: Each subdomain added as a proxied A record via Cloudflare API
-3. **Caddy**: Handles HTTPS termination and reverse proxying for all domains
+3. **Caddy**: Handles HTTPS termination using a wildcard certificate (*.example.com) obtained via DNS-01 challenge
 4. **Xray/VLESS**: Single VLESS endpoint serving all domains
 5. **Subscription**: Base64-encoded link containing all proxy endpoints
+
+### Key Features
+
+- **Wildcard Certificate**: Uses a single wildcard certificate (*.example.com) instead of individual certificates for each subdomain
+- **DNS-01 Challenge**: Certificate obtained via Cloudflare DNS API, no need for port 80 to be accessible
+- **Automatic Renewal**: Caddy automatically renews the wildcard certificate using Cloudflare API
+- **Scalable**: Easily support hundreds or thousands of subdomains with a single certificate
 
 ## Prerequisites
 
@@ -32,7 +40,10 @@ Client → Cloudflare (cdn-47fh.example.com) → Caddy → Xray/VLESS → Intern
 - Domain name with Cloudflare DNS
 - Cloudflare API token with DNS edit permissions
 - Python 3.6+
+- Go programming language (for building Caddy with Cloudflare DNS plugin)
 - Root/sudo access for installation
+
+**Note:** The system now uses wildcard certificates with DNS-01 challenge, which requires Caddy to be built with the Cloudflare DNS plugin. The installation script handles this automatically.
 
 ## Installation
 
@@ -145,16 +156,19 @@ sudo python3 gfwmass.py --install-only
 ## Generated Files
 
 ### Caddyfile
-Caddy configuration handling all domains with automatic HTTPS:
+Caddy configuration handling all domains with automatic HTTPS using a wildcard certificate:
 ```
-cdn-47fh.example.com {
+*.example.com {
     reverse_proxy localhost:10000
     tls {
+        dns cloudflare your-cloudflare-api-token
         protocols tls1.2 tls1.3
     }
     encode gzip
 }
 ```
+
+**Note:** This uses a wildcard certificate (*.example.com) with DNS-01 challenge via Cloudflare API, which is more efficient than obtaining individual certificates for each subdomain. The DNS-01 challenge allows Caddy to automatically obtain and renew the wildcard certificate without requiring HTTP port 80 to be accessible.
 
 ### xray_config.json
 Xray VLESS configuration:
@@ -223,8 +237,8 @@ Allow necessary ports:
 # Allow HTTPS
 ufw allow 443/tcp
 
-# Allow HTTP (for Caddy ACME challenges)
-ufw allow 80/tcp
+# Note: Port 80 is NOT required since we use DNS-01 challenge for certificates
+# The wildcard certificate is obtained via Cloudflare DNS API, not HTTP challenge
 
 # Enable firewall
 ufw enable
@@ -240,7 +254,8 @@ ufw enable
 ### Caddy Not Starting
 - Check Caddyfile syntax: `caddy validate --config /etc/caddy/Caddyfile`
 - Check logs: `journalctl -u caddy -n 50`
-- Ensure port 80 and 443 are available
+- Ensure port 443 is available
+- Verify Cloudflare API token has DNS edit permissions
 
 ### Xray Connection Failed
 - Verify UUID matches in server and client
@@ -249,8 +264,9 @@ ufw enable
 
 ### Certificate Issues
 - Ensure email is set correctly in config.json
-- Check that port 80 is accessible for ACME challenges
-- Verify domain DNS is pointing to your server
+- Verify Cloudflare API token has DNS edit permissions for your zone
+- Check Caddy logs for DNS-01 challenge errors: `journalctl -u caddy -n 100`
+- The wildcard certificate uses DNS-01 challenge, so port 80 is not required
 
 ## Advanced Configuration
 
