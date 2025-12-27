@@ -45,103 +45,13 @@ Client → Cloudflare (cdn-47fh.example.com) → Caddy → Xray/VLESS → Intern
 
 **Note:** You must obtain and provide the wildcard certificate yourself (e.g., certbot manual DNS-01). Caddy is installed from the official repo without DNS provider modules.
 
-## Installation
+## Installation & Usage
 
-### 1. Clone the Repository
+All installation, configuration, and usage instructions have moved to the official guide. Please read the guide before attempting to install or deploy:
 
-```bash
-git clone https://github.com/eli32-vlc/gfwmass.git
-cd gfwmass
-```
+- Guide: https://forum.blackfox.qzz.io/posts/introduction-to-gfwmass/
 
-### 2. Install Python Dependencies
-
-```bash
-pip3 install requests
-```
-
-### 3. Create Configuration File
-
-Copy the example configuration and edit it with your details:
-
-```bash
-cp config.example.json config.json
-nano config.json
-```
-
-Edit the following fields:
-
-```json
-{
-  "domain": "example.com",              // Your domain name
-  "origin_ip": "1.2.3.4",               // Your server's IP address
-  "email": "admin@example.com",         // Email for SSL certificates
-  "xray_port": 10000,                   // Port for Xray to listen on
-  "user_id": "your-uuid-here",          // UUID for VLESS (generate with uuidgen)
-  "cloudflare": {
-    "api_token": "your-token",          // Cloudflare API token
-    "zone_id": "your-zone-id"           // Cloudflare zone ID
-  }
-}
-```
-
-#### Getting Cloudflare Credentials
-
-1. **API Token**: 
-   - Go to https://dash.cloudflare.com/profile/api-tokens
-   - Create token with "Edit DNS" permissions for your zone
-   
-2. **Zone ID**:
-   - Go to your domain's overview page in Cloudflare
-   - Scroll down to "API" section on the right sidebar
-   - Copy the Zone ID
-
-3. **Generate UUID**:
-   ```bash
-   uuidgen
-   # or
-   python3 -c "import uuid; print(uuid.uuid4())"
-   ```
-
-## Usage
-
-### Generate Configs Only (Test Mode)
-
-Generate configuration files without deploying to Cloudflare:
-
-```bash
-python3 gfwmass.py --generate-only --count 100
-```
-
-This creates:
-- `Caddyfile` - Caddy reverse proxy configuration
-- `xray_config.json` - Xray VLESS configuration
-- `domains.txt` - List of all generated domains
-- `subscription.txt` - Base64-encoded subscription link
-- `subscription_decoded.txt` - Human-readable subscription links
-
-### Full Deployment
-
-Deploy everything (DNS records, install dependencies, configure services):
-
-```bash
-sudo python3 gfwmass.py --deploy --count 200
-```
-
-This will:
-1. Generate 200 subdomains
-2. Add all DNS records to Cloudflare
-3. Install Caddy, certbot, and Xray
-4. Deploy configurations
-5. Restart services
-
-### Install Dependencies Only
-
-If you want to install Caddy and Xray separately:
-
-```bash
-sudo python3 gfwmass.py --install-only
-```
+This repository's README no longer contains step-by-step installation instructions; the linked guide is the authoritative source.
 
 ## Command Line Options
 
@@ -333,6 +243,7 @@ This tool is for educational and legitimate use only. Users are responsible for 
 
 - Issues: https://github.com/eli32-vlc/gfwmass/issues
 - Documentation: https://github.com/eli32-vlc/gfwmass/wiki
+ - Guide: https://forum.blackfox.qzz.io/posts/introduction-to-gfwmass/
 
 ## Acknowledgments
 
